@@ -1,0 +1,115 @@
+export default function Home() {
+  return <div>Olá, mundo!</div>;
+}import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import Confetti from 'react-confetti';
+import { useWindowSize } from 'react-use';
+
+// Paths
+const DEFAULT_LOCAL_IMAGE = '/lg.jpg';
+const FALLBACK_IMAGE = 'https://via.placeholder.com/1000x1000.png?text=Imagem+não+encontrada';
+const DIFFICULTIES = { 'Fácil': 4, 'Médio': 6, 'Difícil': 8, 'Impossível': 12 };
+const difficultyLevels = Object.keys(DIFFICULTIES);
+
+export default function QuebraCabeca() {
+  const { width, height } = useWindowSize();
+  const [difficulty, setDifficulty] = useState(1);
+  const cols = useMemo(() => DIFFICULTIES[difficultyLevels[difficulty]], [difficulty]);
+  const rows = cols;
+  const [imageSrc, setImageSrc] = useState(DEFAULT_LOCAL_IMAGE);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [pieces, setPieces] = useState([]);
+  const [board, setBoard] = useState([]);
+  const [win, setWin] = useState(false);
+  const [time, setTime] = useState(0);
+  const [isActive, setIsActive] = useState(false);
+  const [draggingPiece, setDraggingPiece] = useState(null);
+
+  const boardSize = Math.min(width * 0.8, height * 0.7, 600);
+  const pieceSizeInTray = Math.min(72, boardSize / 6);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let mounted = true;
+    setImageLoaded(false);
+    const img = new Image();
+    img.src = imageSrc;
+    img.onload = () => { if (mounted) setImageLoaded(true); };
+    img.onerror = () => { if (!mounted) return; if (imageSrc !== FALLBACK_IMAGE) setImageSrc(FALLBACK_IMAGE); else setImageLoaded(true); };
+    return () => { mounted = false; };
+  }, [imageSrc]);
+
+  const shuffle = useCallback(() => {
+    setIsActive(true); setWin(false); setTime(0);
+    const totalPieces = cols * rows;
+    const newPieces = Array.from({ length: totalPieces }, (_, i) => ({ id: i, rotation: Math.floor(Math.random() * 4) * 90 }));
+    for (let i = newPieces.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [newPieces[i], newPieces[j]] = [newPieces[j], newPieces[i]];
+    }
+    setPieces(newPieces);
+    setBoard(new Array(totalPieces).fill(null));
+  }, [cols, rows]);
+
+  useEffect(() => { if (!imageLoaded) return; shuffle(); }, [difficulty, imageLoaded, shuffle]);
+  useEffect(() => { 
+    let interval = null;
+    if (isActive && !win && typeof window !== 'undefined') {
+      interval = setInterval(() => setTime(t => t + 1), 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isActive, win]);
+  useEffect(() => { checkWinCondition(); }, [board, cols, rows]);
+
+  function checkWinCondition() {
+    if (board.includes(null) || board.length !== cols * rows) return;
+    const isWin = board.every((p, idx) => p && p.id === idx && p.rotation % 360 === 0);
+    if (isWin) { setWin(true); setIsActive(false); }
+  }
+
+  function handleDragStart(e, piece) { setDraggingPiece(piece); try { e.dataTransfer?.setData('text/plain', String(piece.id)); } catch {} }
+  function handleDropOnBoard(e, index) { e.preventDefault(); if (!draggingPiece) return; const current = board[index]; const newBoard = [...board]; newBoard[index] = draggingPiece; if (current) setPieces(p => [...p, current]); setPieces(p => p.filter(x => x.id !== draggingPiece.id)); setBoard(newBoard); setDraggingPiece(null); }
+  function handleDropOnTray(e) { e.preventDefault(); if (!draggingPiece) return; const pos = board.findIndex(p => p && p.id === draggingPiece.id); if (pos !== -1) { const newBoard = [...board]; newBoard[pos] = null; setBoard(newBoard); setPieces(p => [...p, draggingPiece]); } setDraggingPiece(null); }
+  function handlePieceClick(piece) { const rotate = p => ({ ...p, rotation: (p.rotation + 90) % 360 }); const pos = board.findIndex(p => p && p.id === piece.id); if (pos !== -1) { setBoard(b => b.map((p, i) => (i === pos ? rotate(p) : p))); } else { setPieces(ps => ps.map(p => (p.id === piece.id ? rotate(p) : p))); } }
+  function formatTime(seconds) { const m = Math.floor(seconds / 60).toString().padStart(2, '0'); const s = (seconds % 60).toString().padStart(2, '0'); return `${m}:${s}`; }
+  function solve() { const solved = Array.from({ length: cols * rows }, (_, i) => ({ id: i, rotation: 0 })); setBoard(solved); setPieces([]); setWin(true); setIsActive(false); }
+  function handleUpload(file) { if (!file) return; const reader = new FileReader(); reader.onload = (ev) => { setImageSrc(String(ev.target.result)); }; reader.readAsDataURL(file); }
+
+  const gridStyle = { width: boardSize, height: boardSize, display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` };
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'1rem' }}>
+      {win && <Confetti width={width} height={height} recycle={false} numberOfPieces={400} />}
+      <h1>Quebra-cabeça com a minha pretinha ❤️</h1>
+
+      <div style={{ margin:'1rem 0', display:'flex', gap:'0.5rem', flexWrap:'wrap' }}>
+        <button onClick={shuffle}>Embaralhar</button>
+        <button onClick={solve}>Resolver</button>
+        <label>
+          Selecionar imagem
+          <input type="file" accept="image/*" style={{ display:'none' }} onChange={(e) => handleUpload(e.target.files?.[0])} />
+        </label>
+        <span>Tempo: {formatTime(time)}</span>
+      </div>
+
+      <div style={{ display:'flex', gap:'2rem', flexWrap:'wrap' }}>
+        <div style={gridStyle} onDragOver={(e)=>e.preventDefault()}>
+          {board.map((p, idx) => {
+            if (!p) return <div key={idx} className="grid-cell" onDragOver={(e)=>e.preventDefault()} onDrop={(e)=>handleDropOnBoard(e,idx)} />;
+            const denomX = cols>1?(cols-1):1; const denomY = rows>1?(rows-1):1;
+            const posX = ((p.id % cols)/denomX)*100; const posY = (Math.floor(p.id/cols)/denomY)*100;
+            const style = { width:'100%', height:'100%', backgroundImage:`url(${imageSrc})`, backgroundSize:`${cols*100}% ${rows*100}%`, backgroundPosition:`${posX}% ${posY}%`, transform:`rotate(${p.rotation}deg)`};
+            return <div key={idx} className="grid-cell" onDragOver={(e)=>e.preventDefault()} onDrop={(e)=>handleDropOnBoard(e,idx)}><div className="piece" draggable={!win} onDragStart={(e)=>handleDragStart(e,p)} onClick={()=>handlePieceClick(p)} style={style}/></div>;
+          })}
+        </div>
+
+        <div style={{ minWidth:pieceSizeInTray*cols, maxHeight:400, overflowY:'auto', display:'flex', flexWrap:'wrap', gap:'0.25rem' }}>
+          {pieces.map((p)=>{ const denomX = cols>1?(cols-1):1; const denomY = rows>1?(rows-1):1;
+            const posX = ((p.id % cols)/denomX)*100; const posY = (Math.floor(p.id/cols)/denomY)*100;
+            const style={ width:pieceSizeInTray, height:pieceSizeInTray, backgroundImage:`url(${imageSrc})`, backgroundSize:`${cols*100}% ${rows*100}%`, backgroundPosition:`${posX}% ${posY}%` };
+            return <div key={p.id} className="piece" draggable={!win} onDragStart={(e)=>handleDragStart(e,p)} onClick={()=>handlePieceClick(p)} style={style}/>;
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
